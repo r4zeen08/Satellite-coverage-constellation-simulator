@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Satellite Constellation Coverage Simulator</title>
+<style>
+  :root{
+    --bg:#05070c; --panel:#0b1018e0; --line:#1c2634; --text:#d7e2ec;
+    --dim:#7c8ea3; --accent:#4fd6c0; --accent2:#ffb454; --danger:#ff6b6b;
+    --mono:'IBM Plex Mono','Consolas',monospace; --sans:'Inter',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;
+    font-family:var(--sans);color:var(--text);}
+  #scene{position:absolute;inset:0;}
+  canvas{display:block;}
+
+  .hud{position:absolute;z-index:5;background:var(--panel);
+    border:1px solid var(--line);backdrop-filter:blur(6px);
+    border-radius:10px;}
+
+  #panel{top:14px;left:14px;width:300px;padding:16px 16px 14px;
+    max-height:calc(100vh - 28px);overflow-y:auto;}
+  #panel::-webkit-scrollbar{width:6px;}
+  #panel::-webkit-scrollbar-thumb{background:#26364a;border-radius:3px;}
+
+  .title{font-family:var(--mono);font-size:12px;letter-spacing:.14em;
+    color:var(--accent);text-transform:uppercase;margin:0 0 2px;}
+  .subtitle{font-size:11px;color:var(--dim);margin:0 0 14px;line-height:1.4;}
+
+  .grp{margin-bottom:14px;border-top:1px solid var(--line);padding-top:12px;}
+  .grp:first-of-type{border-top:none;padding-top:0;}
+  .grp h3{font-family:var(--mono);font-size:10px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--dim);margin:0 0 8px;}
+
+  .row{display:flex;align-items:center;justify-content:space-between;
+    gap:8px;margin-bottom:8px;}
+  .row label{font-size:12px;color:var(--text);flex:1;}
+  .row .val{font-family:var(--mono);font-size:11px;color:var(--accent2);
+    min-width:52px;text-align:right;}
+  input[type=range]{flex:1.4;accent-color:var(--accent);height:4px;}
+  input[type=number]{width:56px;background:#0e1420;border:1px solid var(--line);
+    color:var(--text);border-radius:5px;padding:3px 5px;font-family:var(--mono);font-size:11px;}
+
+  .swatch{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;}
+  .leo .swatch{background:#4fd6c0;} .meo .swatch{background:#ffb454;} .geo .swatch{background:#ff6b6b;}
+
+  button{background:#141c29;border:1px solid var(--line);color:var(--text);
+    font-family:var(--mono);font-size:11px;letter-spacing:.04em;padding:7px 10px;
+    border-radius:7px;cursor:pointer;transition:.15s;}
+  button:hover{background:#1a2536;border-color:#33465e;}
+  button.active{background:var(--accent);color:#04211c;border-color:var(--accent);}
+  .btnrow{display:flex;gap:6px;}
+  .btnrow button{flex:1;}
+
+  #stats{top:14px;right:14px;width:250px;padding:16px;}
+  #stats .big{font-family:var(--mono);font-size:34px;color:var(--accent);
+    line-height:1;margin:2px 0 0;}
+  #stats .label{font-size:10px;color:var(--dim);letter-spacing:.1em;text-transform:uppercase;}
+  #stats .subline{font-size:11px;color:var(--dim);margin-top:4px;}
+  #stats hr{border:none;border-top:1px solid var(--line);margin:12px 0;}
+  .breakdown div{display:flex;justify-content:space-between;font-size:11px;
+    font-family:var(--mono);margin-bottom:5px;color:var(--dim);}
+  .breakdown span.n{color:var(--text);}
+
+  #bottom{bottom:14px;left:50%;transform:translateX(-50%);
+    padding:8px 16px;font-family:var(--mono);font-size:11px;color:var(--dim);
+    display:flex;gap:18px;align-items:center;}
+  #bottom b{color:var(--text);}
+  #bottom .sep{width:1px;height:14px;background:var(--line);}
+
+  #tooltip{position:absolute;z-index:6;pointer-events:none;background:#0d1420f2;
+    border:1px solid var(--line);border-radius:6px;padding:6px 9px;
+    font-family:var(--mono);font-size:11px;display:none;white-space:nowrap;}
+
+  a.hint{color:var(--accent2);text-decoration:none;}
+</style>
+</head>
+<body>
+
+<div id="scene"></div>
+
+<div class="hud" id="panel">
+  <p class="title">Constellation Coverage</p>
+  <p class="subtitle">Drag empty space to orbit the camera, scroll to zoom.
+  Click a satellite, then drag it along its orbit ring to reposition it in-plane.</p>
+
+  <div class="grp leo">
+    <h3><span class="swatch"></span>LEO shell</h3>
+    <div class="row"><label>Satellites</label>
+      <input type="range" id="leoCount" min="0" max="60" value="18">
+      <span class="val" id="leoCountV">18</span></div>
+    <div class="row"><label>Altitude (km)</label>
+      <input type="range" id="leoAlt" min="300" max="2000" value="550" step="10">
+      <span class="val" id="leoAltV">550</span></div>
+    <div class="row"><label>Inclination (°)</label>
+      <input type="range" id="leoInc" min="0" max="98" value="53">
+      <span class="val" id="leoIncV">53</span></div>
+  </div>
+
+  <div class="grp meo">
+    <h3><span class="swatch"></span>MEO shell</h3>
+    <div class="row"><label>Satellites</label>
+      <input type="range" id="meoCount" min="0" max="40" value="12">
+      <span class="val" id="meoCountV">12</span></div>
+    <div class="row"><label>Altitude (km)</label>
+      <input type="range" id="meoAlt" min="2000" max="25000" value="20200" step="100">
+      <span class="val" id="meoAltV">20200</span></div>
+    <div class="row"><label>Inclination (°)</label>
+      <input type="range" id="meoInc" min="0" max="90" value="55">
+      <span class="val" id="meoIncV">55</span></div>
+  </div>
+
+  <div class="grp geo">
+    <h3><span class="swatch"></span>GEO ring</h3>
+    <div class="row"><label>Satellites</label>
+      <input type="range" id="geoCount" min="0" max="30" value="8">
+      <span class="val" id="geoCountV">8</span></div>
+    <div class="row"><label>Altitude (km)</label>
+      <span class="val" style="color:var(--dim)">35,786 fixed</span></div>
+  </div>
+
+  <div class="grp">
+    <h3>Coverage model</h3>
+    <div class="row"><label>Min elevation (°)</label>
+      <input type="range" id="minEl" min="0" max="40" value="10">
+      <span class="val" id="minElV">10</span></div>
+    <div class="row"><label>Show coverage cones</label>
+      <input type="checkbox" id="showCones" checked style="accent-color:var(--accent)"></div>
+    <div class="row"><label>Show density heatmap</label>
+      <input type="checkbox" id="showHeat" checked style="accent-color:var(--accent)"></div>
+  </div>
+
+  <div class="grp">
+    <h3>Time</h3>
+    <div class="row"><label>Speed (x real time)</label>
+      <input type="range" id="timeScale" min="0" max="4" value="3" step="0.01">
+      <span class="val" id="timeScaleV">1000x</span></div>
+    <div class="btnrow">
+      <button id="playBtn" class="active">⏵ Playing</button>
+      <button id="resetBtn">↺ Regenerate</button>
+    </div>
+  </div>
+</div>
+
+<div class="hud" id="stats">
+  <div class="label">Population Covered</div>
+  <div class="big" id="coveragePct">0.0%</div>
+  <div class="subline" id="coverageAbs">0 / 0 people</div>
+  <hr>
+  <div class="breakdown">
+    <div><span>Total satellites</span><span class="n" id="satTotal">0</span></div>
+    <div><span>LEO / MEO / GEO period</span><span class="n" id="periods">–</span></div>
+    <div><span>Selected satellite</span><span class="n" id="selInfo">none</span></div>
+  </div>
+</div>
+
+<div class="hud" id="bottom">
+  <span>Sim time: <b id="simTime">0h 0m</b></span>
+  <div class="sep"></div>
+  <span>Model: Kepler circular orbits, μ⊕=398600 km³/s²</span>
+  <div class="sep"></div>
+  <span>Density: 55-region gaussian approximation, ~7.9B total</span>
+</div>
+
+<div id="tooltip"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ============================== CONSTANTS ============================== */
+const MU_EARTH = 398600.4418;      // km^3/s^2  (GM of Earth)
+const R_EARTH_KM = 6371;           // km
+const SCENE_R = 50;                // Earth radius in scene units
+const KM_TO_SCENE = SCENE_R / R_EARTH_KM;
+const SIDEREAL_DAY_S = 86164.1;    // s, Earth rotation period
+
+/* ============================ POPULATION MODEL ==========================
+   Approximate population "hotspots": lat, lon, weight (millions), spread (deg).
+   This is a hand-built approximation of real population distribution, not a
+   pixel-accurate census. Swap `buildDensityGrid()` for a real gridded dataset
+   (e.g. NASA SEDAC GPWv4 / WorldPop rasters) for production-accurate results.
+*/
+const POP_REGIONS = [
+  [31,121,121,8],[39,116,116,7],[23,113,110,6],[30,104,90,7],
+  [28,77,300,9],[19,73,120,6],[13,78,150,7],[23,89,250,7],
+  [28,69,200,7],[-6,110,140,6],[0,120,80,10],[13,122,110,6],
+  [16,106,95,5],[15,101,65,5],[20,96,54,6],[36,138,125,6],
+  [37,127,52,4],[9,8,210,7],[9,38,115,6],[27,31,105,4],
+  [0,25,95,7],[-29,25,60,6],[-6,35,130,8],[8,-2,180,8],
+  [32,3,100,7],[5,20,90,8],[49,7,180,6],[54,-3,70,4],
+  [41,5,120,6],[50,25,140,7],[56,38,90,6],[60,90,35,15],
+  [39,35,85,5],[32,53,88,6],[40,-75,65,4],[33,-83,90,6],
+  [41,-88,55,6],[30,-97,60,5],[36,-119,55,5],[19,-99,130,6],
+  [14,-88,50,5],[-22,-46,110,6],[-8,-38,55,6],[-5,-60,45,9],
+  [6,-70,95,7],[-10,-75,65,7],[-35,-65,60,7],[55,-97,38,12],
+  [-25,134,26,12],[45,66,75,8],[24,45,60,6],[33,42,70,5],
+  [27,85,55,4],[34,66,40,5]
+];
+const BASELINE = 0.35; // flat rural/background contribution added everywhere
+
+const GRID_W = 180, GRID_H = 90; // 2 deg resolution
+let densityGrid = new Float64Array(GRID_W*GRID_H);
+let totalPopMillions = 7900;
+
+function angDist(lat1,lon1,lat2,lon2){
+  const p1=lat1*Math.PI/180, p2=lat2*Math.PI/180;
+  const dl=(lon2-lon1)*Math.PI/180, dp=p2-p1;
+  const a=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+  return 2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))*180/Math.PI;
+}
+
+function buildDensityGrid(){
+  let raw = new Float64Array(GRID_W*GRID_H);
+  let sum = 0;
+  for(let j=0;j<GRID_H;j++){
+    const lat = 90 - (j+0.5)*(180/GRID_H);
+    for(let i=0;i<GRID_W;i++){
+      const lon = -180 + (i+0.5)*(360/GRID_W);
+      let v = BASELINE;
+      for(const [rlat,rlon,pop,sigma] of POP_REGIONS){
+        const d = angDist(lat,lon,rlat,rlon);
+        v += pop * Math.exp(-(d*d)/(2*sigma*sigma));
+      }
+      raw[j*GRID_W+i]=v;
+      sum += v;
+    }
+  }
+  const scale = totalPopMillions / sum;
+  for(let k=0;k<raw.length;k++) densityGrid[k]=raw[k]*scale;
+}
+buildDensityGrid();
+
+function densityAt(lat,lon){
+  let i = Math.floor((lon+180)/(360/GRID_W));
+  let j = Math.floor((90-lat)/(180/GRID_H));
+  i=Math.max(0,Math.min(GRID_W-1,i));
+  j=Math.max(0,Math.min(GRID_H-1,j));
+  return densityGrid[j*GRID_W+i];
+}
+
+/* ============================ THREE.JS SETUP ============================= */
+const container = document.getElementById('scene');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05070c);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 5000);
+let camDist = 190, camTheta = 0.9, camPhi = 1.1;
+function updateCamera(){
+  camPhi = Math.max(0.15, Math.min(Math.PI-0.15, camPhi));
+  camDist = Math.max(70, Math.min(900, camDist));
+  camera.position.set(
+    camDist*Math.sin(camPhi)*Math.cos(camTheta),
+    camDist*Math.cos(camPhi),
+    camDist*Math.sin(camPhi)*Math.sin(camTheta)
+  );
+  camera.lookAt(0,0,0);
+}
+updateCamera();
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth, innerHeight);
+container.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0x8899aa, 0.55));
+const sun = new THREE.DirectionalLight(0xffffff, 1.1);
+sun.position.set(300,150,200);
+scene.add(sun);
+
+/* starfield */
+{
+  const g = new THREE.BufferGeometry();
+  const N=2500, pos=new Float32Array(N*3);
+  for(let i=0;i<N;i++){
+    const r=1400+Math.random()*800;
+    const t=Math.random()*Math.PI*2, p=Math.acos(2*Math.random()-1);
+    pos[i*3]=r*Math.sin(p)*Math.cos(t);
+    pos[i*3+1]=r*Math.cos(p);
+    pos[i*3+2]=r*Math.sin(p)*Math.sin(t);
+  }
+  g.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({color:0xaaccff,size:1.4,sizeAttenuation:false})));
+}
+
+/* lat/lon -> position (matches standard sphere UV mapping) */
+function latLonToVec3(lat, lon, radius){
+  const phi = (90-lat)*Math.PI/180;
+  const theta = (lon+180)*Math.PI/180;
+  return new THREE.Vector3(
+    -radius*Math.sin(phi)*Math.cos(theta),
+    radius*Math.cos(phi),
+    radius*Math.sin(phi)*Math.sin(theta)
+  );
+}
+function vec3ToLatLon(v){
+  const r = v.length();
+  const lat = 90 - Math.acos(v.y/r)*180/Math.PI;
+  let lon = Math.atan2(v.z, -v.x)*180/Math.PI - 180;
+  if(lon < -180) lon += 360;
+  if(lon > 180) lon -= 360;
+  return [lat,lon];
+}
+
+/* ============================ EARTH TEXTURE =============================
+   Procedurally drawn: ocean/continent silhouette + population heatmap,
+   generated on a canvas so it can double as our data source (no external
+   image / CORS dependency). Continents are simplified silhouettes.
+*/
+const CONTINENTS = [ // rough polygon outlines [lat,lon] pairs, simplified
+  {pts:[[71,-10],[70,60],[45,60],[35,45],[12,43],[8,45],[-2,40],[-35,18],[-34,20],[10,-17],[36,-6],[43,10],[55,10],[60,30],[71,-10]]}, // Africa+Eurasia west chunk (rough)
+  {pts:[[55,60],[60,90],[70,140],[55,165],[42,132],[30,120],[20,105],[10,105],[8,98],[20,72],[35,60],[45,50],[55,60]]}, // Asia
+  [83,-70],
+  {pts:[[70,-165],[70,-60],[45,-52],[25,-80],[20,-105],[32,-117],[48,-124],[60,-140],[70,-165]]}, // N America
+  {pts:[[12,-70],[-5,-35],[-34,-58],[-55,-68],[-20,-70],[-2,-80],[12,-70]]}, // S America
+  {pts:[[-11,113],[-12,141],[-25,153],[-38,145],[-35,117],[-20,115],[-11,113]]}, // Australia
+];
+function buildEarthCanvas(){
+  const w=1024,h=512;
+  const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+  const ctx=cv.getContext('2d');
+  // ocean gradient
+  const grad=ctx.createLinearGradient(0,0,0,h);
+  grad.addColorStop(0,'#0a2438'); grad.addColorStop(0.5,'#0d3350'); grad.addColorStop(1,'#0a2438');
+  ctx.fillStyle=grad; ctx.fillRect(0,0,w,h);
+
+  function toXY(lat,lon){ return [(lon+180)/360*w, (90-lat)/180*h]; }
+  ctx.fillStyle='#1f3d2c'; ctx.strokeStyle='#2c5240'; ctx.lineWidth=1;
+  for(const c of CONTINENTS){
+    if(!c.pts) continue;
+    ctx.beginPath();
+    c.pts.forEach(([lat,lon],idx)=>{
+      const [x,y]=toXY(lat,lon);
+      idx===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    });
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  // subtle latitude shading (poles whiter/icier)
+  const iceGrad = ctx.createLinearGradient(0,0,0,h);
+  iceGrad.addColorStop(0,'rgba(220,235,245,0.35)');
+  iceGrad.addColorStop(0.12,'rgba(220,235,245,0)');
+  iceGrad.addColorStop(0.88,'rgba(220,235,245,0)');
+  iceGrad.addColorStop(1,'rgba(220,235,245,0.35)');
+  ctx.fillStyle=iceGrad; ctx.fillRect(0,0,w,h);
+
+  // population heatmap overlay
+  const heat = document.createElement('canvas'); heat.width=w; heat.height=h;
+  const hctx = heat.getContext('2d');
+  let maxV=0; for(const v of densityGrid) if(v>maxV) maxV=v;
+  const imgW=GRID_W, imgH=GRID_H;
+  const small = hctx.createImageData(imgW,imgH);
+  function heatColor(t){ // t 0..1
+    t=Math.pow(t,0.42);
+    const stops=[[10,20,40,0],[40,70,140,60],[80,180,210,140],[255,210,90,210],[255,90,60,255]];
+    const idx=Math.min(3,Math.floor(t*4)); const f=t*4-idx;
+    const a=stops[idx], b=stops[idx+1];
+    return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+  }
+  for(let j=0;j<imgH;j++)for(let i=0;i<imgW;i++){
+    const v=densityGrid[j*imgW+i]/maxV;
+    const [r,g,b,a]=heatColor(v);
+    const k=(j*imgW+i)*4;
+    small.data[k]=r; small.data[k+1]=g; small.data[k+2]=b; small.data[k+3]=a*0.85;
+  }
+  hctx.putImageData(small,0,0);
+
+  return {base:cv, heat:heat, ctx, w, h};
+}
+const earthCanvases = buildEarthCanvas();
+
+function composite(showHeat){
+  const w=earthCanvases.w, h=earthCanvases.h;
+  const out=document.createElement('canvas'); out.width=w; out.height=h;
+  const octx=out.getContext('2d');
+  octx.drawImage(earthCanvases.base,0,0);
+  if(showHeat){
+    octx.imageSmoothingEnabled=true;
+    octx.drawImage(earthCanvases.heat,0,0,GRID_W,GRID_H,0,0,w,h);
+  }
+  return out;
+}
+let earthTexture = new THREE.CanvasTexture(composite(true));
+
+const earthGeo = new THREE.SphereGeometry(SCENE_R, 64, 48);
+const earthMat = new THREE.MeshPhongMaterial({map:earthTexture, shininess:8, specular:0x223344});
+const earthMesh = new THREE.Mesh(earthGeo, earthMat);
+scene.add(earthMesh);
+
+// thin atmosphere shell
+const atmoMat = new THREE.MeshBasicMaterial({color:0x4fd6c0, transparent:true, opacity:0.06, side:THREE.BackSide});
+scene.add(new THREE.Mesh(new THREE.SphereGeometry(SCENE_R*1.03,48,32), atmoMat));
+
+function refreshEarthTexture(){
+  earthTexture.image = composite(document.getElementById('showHeat').checked);
+  earthTexture.needsUpdate = true;
+}
+
+/* ============================ ORBIT MECHANICS ============================ */
+function periodForAlt(altKm){
+  const a = R_EARTH_KM + altKm;
+  return 2*Math.PI*Math.sqrt(Math.pow(a,3)/MU_EARTH); // seconds
+}
+
+class Satellite {
+  constructor(type, altKm, inclDeg, raanDeg, m0Deg, planeId){
+    this.type=type; this.altKm=altKm; this.incl=inclDeg*Math.PI/180;
+    this.raan=raanDeg*Math.PI/180; this.m0=m0Deg*Math.PI/180;
+    this.a = R_EARTH_KM + altKm;
+    this.period = periodForAlt(altKm);
+    this.planeId = planeId;
+    this.phaseOverride = null; // set while dragging
+    this.pos = new THREE.Vector3();
+    this.subLatLon = [0,0];
+  }
+  theta(simTimeS){
+    if(this.phaseOverride!==null) return this.phaseOverride;
+    return this.m0 + (2*Math.PI/this.period)*simTimeS;
+  }
+  update(simTimeS){
+    const th = this.theta(simTimeS);
+    // position in orbital plane (x,y), then rotate by inclination about x, then RAAN about y
+    const xp = this.a*Math.cos(th), yp = this.a*Math.sin(th);
+    let x = xp, y = yp*Math.cos(this.incl), z = yp*Math.sin(this.incl);
+    const cx = x*Math.cos(this.raan) - z*Math.sin(this.raan);
+    const cz = x*Math.sin(this.raan) + z*Math.cos(this.raan);
+    this.pos.set(cx*KM_TO_SCENE, y*KM_TO_SCENE, cz*KM_TO_SCENE);
+  }
+  coverageHalfAngleDeg(minElDeg){
+    const minEl = minElDeg*Math.PI/180;
+    const ratio = R_EARTH_KM/this.a;
+    const lambda = Math.acos(ratio*Math.cos(minEl)) - minEl;
+    return lambda*180/Math.PI;
+  }
+}
+
+const COLORS = {LEO:0x4fd6c0, MEO:0xffb454, GEO:0xff6b6b};
+let satellites = [];
+let satMeshes = [];   // {sat, mesh, cone, ring}
+let orbitRings = [];
+let simTimeS = 0;
+let earthRotationDeg = 0;
+
+function clearGroup(group){
+  while(group.children.length) group.remove(group.children[0]);
+}
+const satGroup = new THREE.Group(); scene.add(satGroup);
+const ringGroup = new THREE.Group(); scene.add(ringGroup);
+const coneGroup = new THREE.Group(); scene.add(coneGroup);
+
+function makeOrbitRing(a_km, incl, raan, color){
+  const pts=[];
+  const N=128;
+  for(let i=0;i<=N;i++){
+    const th = i/N*Math.PI*2;
+    const xp=a_km*Math.cos(th), yp=a_km*Math.sin(th);
+    let x=xp, y=yp*Math.cos(incl), z=yp*Math.sin(incl);
+    const cx=x*Math.cos(raan)-z*Math.sin(raan);
+    const cz=x*Math.sin(raan)+z*Math.cos(raan);
+    pts.push(new THREE.Vector3(cx*KM_TO_SCENE,y*KM_TO_SCENE,cz*KM_TO_SCENE));
+  }
+  const geo=new THREE.BufferGeometry().setFromPoints(pts);
+  const mat=new THREE.LineBasicMaterial({color, transparent:true, opacity:0.28});
+  return new THREE.Line(geo, mat);
+}
+
+function generateConstellation(){
+  clearGroup(satGroup); clearGroup(ringGroup); clearGroup(coneGroup);
+  satellites=[]; satMeshes=[]; orbitRings=[];
+  selected = null;
+
+  const cfgs = [
+    {type:'LEO', n:+leoCount.value, alt:+leoAlt.value, incl:+leoInc.value},
+    {type:'MEO', n:+meoCount.value, alt:+meoAlt.value, incl:+meoInc.value},
+    {type:'GEO', n:+geoCount.value, alt:35786, incl:0},
+  ];
+
+  for(const cfg of cfgs){
+    if(cfg.n<=0) continue;
+    const planes = cfg.type==='GEO' ? 1 : Math.max(1, Math.min(6, Math.ceil(Math.sqrt(cfg.n))));
+    const perPlane = Math.ceil(cfg.n/planes);
+    let created=0;
+    for(let p=0;p<planes && created<cfg.n;p++){
+      const raan = (360/planes)*p;
+      const ring = makeOrbitRing(R_EARTH_KM+cfg.alt, cfg.incl*Math.PI/180, raan*Math.PI/180, COLORS[cfg.type]);
+      ringGroup.add(ring);
+      orbitRings.push({type:cfg.type, alt:cfg.alt, incl:cfg.incl, raan, mesh:ring});
+      for(let s=0;s<perPlane && created<cfg.n;s++){
+        const m0 = (360/perPlane)*s + (p*17)%360; // stagger between planes
+        const sat = new Satellite(cfg.type, cfg.alt, cfg.incl, raan, m0, p);
+        satellites.push(sat);
+
+        const geo = new THREE.SphereGeometry(1.4,10,10);
+        const mat = new THREE.MeshBasicMaterial({color:COLORS[cfg.type]});
+        const mesh = new THREE.Mesh(geo,mat);
+        mesh.userData.sat = sat;
+        satGroup.add(mesh);
+
+        let cone=null;
+        if(document.getElementById('showCones').checked){
+          const hAlt = SCENE_R + cfg.alt*KM_TO_SCENE;
+          const halfAngle = sat.coverageHalfAngleDeg(+minEl.value)*Math.PI/180;
+          const footR = Math.max(1, hAlt*Math.tan(halfAngle)*0.55);
+          const coneGeo = new THREE.ConeGeometry(footR, hAlt*0.98, 24, 1, true);
+          const coneMat = new THREE.MeshBasicMaterial({color:COLORS[cfg.type], transparent:true, opacity:0.10, side:THREE.DoubleSide, depthWrite:false});
+          cone = new THREE.Mesh(coneGeo, coneMat);
+          coneGroup.add(cone);
+        }
+        satMeshes.push({sat, mesh, cone});
+        created++;
+      }
+    }
+  }
+  document.getElementById('satTotal').textContent = satellites.length;
+  const Lp = periodForAlt(+leoAlt.value)/3600, Mp = periodForAlt(+meoAlt.value)/3600, Gp = periodForAlt(35786)/3600;
+  document.getElementById('periods').textContent = `${Lp.toFixed(1)}h / ${Mp.toFixed(1)}h / ${Gp.toFixed(1)}h`;
+}
+
+/* ============================ COVERAGE CALC =============================
+   For each population grid cell, mark covered if within angular coverage
+   radius of at least one satellite's sub-satellite point.
+*/
+let coverageCache = {pct:0, covered:0, total:0};
+function computeCoverage(){
+  const minElDeg = +minEl.value;
+  const subs = satellites.map(s=>{
+    const lat = 90 - Math.acos(s.pos.y/s.pos.length())*180/Math.PI;
+    let lon = Math.atan2(s.pos.z, -s.pos.x)*180/Math.PI - earthRotationDeg - 180;
+    lon = ((lon+540)%360)-180;
+    return {lat, lon, half: s.coverageHalfAngleDeg(minElDeg)};
+  });
+  let covered=0, total=0;
+  for(let j=0;j<GRID_H;j++){
+    const lat = 90 - (j+0.5)*(180/GRID_H);
+    for(let i=0;i<GRID_W;i++){
+      const lon = -180 + (i+0.5)*(360/GRID_W);
+      const w = densityGrid[j*GRID_W+i];
+      total += w;
+      for(const s of subs){
+        if(Math.abs(lat-s.lat) > s.half+1) continue;
+        if(angDist(lat,lon,s.lat,s.lon) <= s.half){ covered += w; break; }
+      }
+    }
+  }
+  coverageCache = {pct: total? covered/total*100:0, covered, total};
+}
+
+function refreshStatsUI(){
+  document.getElementById('coveragePct').textContent = coverageCache.pct.toFixed(1)+'%';
+  const covPeople = coverageCache.covered*1e6, totPeople = coverageCache.total*1e6;
+  document.getElementById('coverageAbs').textContent =
+    `${(covPeople/1e9).toFixed(2)}B / ${(totPeople/1e9).toFixed(2)}B people`;
+}
+
+/* ============================ INTERACTION ================================ */
+const raycaster = new THREE.Raycaster();
+raycaster.params.Points.threshold = 2;
+const mouse = new THREE.Vector2();
+let dragging=false, dragStart=null, rotating=false;
+let selected=null;
+const tooltip = document.getElementById('tooltip');
+
+function setMouse(e){
+  const r=renderer.domElement.getBoundingClientRect();
+  mouse.x = ((e.clientX-r.left)/r.width)*2-1;
+  mouse.y = -((e.clientY-r.top)/r.height)*2+1;
+}
+
+renderer.domElement.addEventListener('pointerdown', (e)=>{
+  setMouse(e);
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(satGroup.children);
+  if(hits.length>0){
+    selected = hits[0].object.userData.sat;
+    dragging = true;
+    updateSelInfo();
+  } else {
+    rotating = true;
+    dragStart = {x:e.clientX,y:e.clientY,theta:camTheta,phi:camPhi};
+  }
+});
+window.addEventListener('pointermove', (e)=>{
+  setMouse(e);
+  if(dragging && selected){
+    raycaster.setFromCamera(mouse, camera);
+    // plane of the satellite's orbit: normal vector
+    const incl=selected.incl, raan=selected.raan;
+    const normal = new THREE.Vector3(Math.sin(incl)*Math.sin(raan)*-1, Math.cos(incl), Math.sin(incl)*Math.cos(raan));
+    // correct normal: derive from two basis vectors of orbital plane
+    const bx = new THREE.Vector3(Math.cos(raan),0,Math.sin(raan));
+    const by = new THREE.Vector3(-Math.sin(raan)*Math.cos(incl), Math.sin(incl), Math.cos(raan)*Math.cos(incl));
+    const n = new THREE.Vector3().crossVectors(bx,by).normalize();
+    const plane = new THREE.Plane(n, 0);
+    const ipt = new THREE.Vector3();
+    raycaster.ray.intersectPlane(plane, ipt);
+    if(ipt){
+      const localX = ipt.dot(bx), localY = ipt.dot(by);
+      selected.phaseOverride = Math.atan2(localY, localX);
+    }
+  } else if(rotating){
+    camTheta = dragStart.theta - (e.clientX-dragStart.x)*0.005;
+    camPhi = dragStart.phi - (e.clientY-dragStart.y)*0.005;
+    updateCamera();
+  } else {
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(satGroup.children);
+    if(hits.length>0){
+      const s = hits[0].object.userData.sat;
+      tooltip.style.display='block';
+      tooltip.style.left=(e.clientX+14)+'px';
+      tooltip.style.top=(e.clientY+10)+'px';
+      tooltip.innerHTML = `${s.type} · alt ${s.altKm.toFixed(0)}km · period ${(s.period/60).toFixed(1)}min`;
+    } else tooltip.style.display='none';
+  }
+});
+window.addEventListener('pointerup', ()=>{
+  if(dragging && selected){
+    // lock in new phase as the base m0, referenced to current sim time
+    selected.m0 = selected.phaseOverride - (2*Math.PI/selected.period)*simTimeS;
+    selected.phaseOverride = null;
+  }
+  dragging=false; rotating=false;
+});
+renderer.domElement.addEventListener('wheel', (e)=>{
+  camDist += e.deltaY*0.08;
+  updateCamera();
+});
+
+function updateSelInfo(){
+  document.getElementById('selInfo').textContent = selected ?
+    `${selected.type} @ ${selected.altKm.toFixed(0)}km` : 'none';
+}
+
+/* ============================ UI WIRING =================================== */
+const leoCount=document.getElementById('leoCount'), leoAlt=document.getElementById('leoAlt'), leoInc=document.getElementById('leoInc');
+const meoCount=document.getElementById('meoCount'), meoAlt=document.getElementById('meoAlt'), meoInc=document.getElementById('meoInc');
+const geoCount=document.getElementById('geoCount');
+const minEl=document.getElementById('minEl');
+const timeScale=document.getElementById('timeScale');
+let playing=true;
+
+function bindLive(el, out, suffix=''){
+  el.addEventListener('input', ()=>{ document.getElementById(out).textContent = el.value+suffix; });
+}
+bindLive(leoCount,'leoCountV'); bindLive(leoAlt,'leoAltV'); bindLive(leoInc,'leoIncV','°');
+bindLive(meoCount,'meoCountV'); bindLive(meoAlt,'meoAltV'); bindLive(meoInc,'meoIncV','°');
+bindLive(geoCount,'geoCountV'); bindLive(minEl,'minElV','°');
+
+[leoCount,leoAlt,leoInc,meoCount,meoAlt,meoInc,geoCount].forEach(el=>{
+  el.addEventListener('change', generateConstellation);
+});
+minEl.addEventListener('change', generateConstellation);
+document.getElementById('showCones').addEventListener('change', generateConstellation);
+document.getElementById('showHeat').addEventListener('change', refreshEarthTexture);
+document.getElementById('resetBtn').addEventListener('click', generateConstellation);
+document.getElementById('playBtn').addEventListener('click', (e)=>{
+  playing=!playing;
+  e.target.classList.toggle('active', playing);
+  e.target.textContent = playing ? '⏵ Playing' : '⏸ Paused';
+});
+timeScale.addEventListener('input', ()=>{
+  const mult = Math.round(Math.pow(10, timeScale.value));
+  document.getElementById('timeScaleV').textContent = mult+'x';
+});
+
+/* ============================ RENDER LOOP ================================= */
+let lastT = performance.now();
+let coverageAccum = 0;
+function animate(now){
+  requestAnimationFrame(animate);
+  const dtReal = Math.min(0.1, (now-lastT)/1000);
+  lastT = now;
+  const mult = Math.round(Math.pow(10, timeScale.value));
+  if(playing){
+    simTimeS += dtReal*mult;
+    earthRotationDeg = (simTimeS/SIDEREAL_DAY_S*360) % 360;
+  }
+  earthMesh.rotation.y = earthRotationDeg*Math.PI/180;
+
+  for(const {sat, mesh, cone} of satMeshes){
+    sat.update(simTimeS);
+    mesh.position.copy(sat.pos);
+    if(cone){
+      cone.position.copy(sat.pos).multiplyScalar(0.5);
+      cone.lookAt(0,0,0);
+      cone.rotateX(Math.PI/2);
+    }
+  }
+
+  coverageAccum += dtReal;
+  if(coverageAccum > 0.5){
+    coverageAccum = 0;
+    computeCoverage();
+    refreshStatsUI();
+  }
+
+  const totalH = Math.floor(simTimeS/3600);
+  document.getElementById('simTime').textContent = `${totalH}h ${Math.floor((simTimeS%3600)/60)}m`;
+
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', ()=>{
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+generateConstellation();
+computeCoverage();
+refreshStatsUI();
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
